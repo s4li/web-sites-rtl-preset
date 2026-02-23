@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="popup.css">
+  <title>RTL Preset</title>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>RTL Preset</h1>
+      <p class="subtitle">سایت‌هایی که باید راست‌به‌چپ بشن</p>
+    </header>
+
+    <div class="quick-toggle" id="quickToggle" style="display: none;">
+      <span class="toggle-label" id="currentSiteLabel"></span>
+      <button class="btn-toggle" id="toggleCurrentSite">
+        <span class="toggle-text" id="toggleText">فعال کردن</span>
+      </button>
+    </div>
+
+    <div class="add-site">
+      <input
+        type="text"
+        id="siteInput"
+        placeholder="مثلاً claude.ai"
+        autocomplete="off"
+        spellcheck="false"
+      >
+      <button class="btn-add" id="addSiteBtn">+</button>
+    </div>
+
+    <ul class="site-list" id="siteList"></ul>
+
+    <div class="empty-state" id="emptyState">
+      <p>هنوز سایتی اضافه نشده</p>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
