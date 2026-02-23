@@ -13,6 +13,7 @@
       <p class="subtitle">سایت‌هایی که باید راست‌به‌چپ بشن</p>
     </header>
 
+    <!-- Quick toggle for current site -->
     <div class="quick-toggle" id="quickToggle" style="display: none;">
       <span class="toggle-label" id="currentSiteLabel"></span>
       <button class="btn-toggle" id="toggleCurrentSite">
@@ -20,6 +21,19 @@
       </button>
     </div>
 
+    <!-- Font selector -->
+    <div class="font-section" id="fontSection" style="display: none;">
+      <label class="font-label">فونت:</label>
+      <select id="fontSelect" class="font-select">
+        <option value="none">پیش‌فرض سایت</option>
+        <option value="vazirmatn">Vazirmatn (وزیرمتن)</option>
+        <option value="noto-sans-arabic">Noto Sans Arabic</option>
+        <option value="sahel">Sahel (ساحل)</option>
+        <option value="samim">Samim (صمیم)</option>
+      </select>
+    </div>
+
+    <!-- Add site -->
     <div class="add-site">
       <input
         type="text"
@@ -31,10 +45,23 @@
       <button class="btn-add" id="addSiteBtn">+</button>
     </div>
 
+    <!-- Site list -->
     <ul class="site-list" id="siteList"></ul>
 
     <div class="empty-state" id="emptyState">
       <p>هنوز سایتی اضافه نشده</p>
+    </div>
+
+    <!-- Import / Export -->
+    <div class="io-section">
+      <button class="btn-io" id="exportBtn">خروجی (Export)</button>
+      <button class="btn-io" id="importBtn">ورودی (Import)</button>
+      <input type="file" id="importFile" accept=".json" style="display: none;">
+    </div>
+
+    <!-- Shortcut hint -->
+    <div class="shortcut-hint">
+      <span>Ctrl+Shift+R</span> تغییر سریع RTL صفحه
     </div>
   </div>
 

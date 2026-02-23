@@ -41,7 +41,7 @@ header h1 {
   border: 1px solid #2a2a4a;
   border-radius: 10px;
   padding: 10px 14px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .toggle-label {
@@ -77,6 +77,41 @@ header h1 {
 
 .btn-toggle.active:hover {
   background: #d63851;
+}
+
+/* Font selector */
+.font-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #16213e;
+  border: 1px solid #2a2a4a;
+  border-radius: 10px;
+  padding: 8px 14px;
+  margin-bottom: 14px;
+}
+
+.font-label {
+  font-size: 12px;
+  color: #aaa;
+  white-space: nowrap;
+}
+
+.font-select {
+  flex: 1;
+  background: #0f3460;
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+  padding: 5px 8px;
+  color: #e0e0e0;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+  direction: ltr;
+}
+
+.font-select option {
+  background: #16213e;
 }
 
 /* Add site section */
@@ -133,7 +168,7 @@ header h1 {
 /* Site list */
 .site-list {
   list-style: none;
-  max-height: 250px;
+  max-height: 200px;
   overflow-y: auto;
 }
 
@@ -205,4 +240,49 @@ header h1 {
 
 .empty-state.hidden {
   display: none;
+}
+
+/* Import / Export section */
+.io-section {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #2a2a4a;
+}
+
+.btn-io {
+  flex: 1;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 7px 0;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: #aaa;
+  background: #16213e;
+}
+
+.btn-io:hover {
+  color: #fff;
+  border-color: #4a4a8a;
+  background: #1a2a4e;
+}
+
+/* Shortcut hint */
+.shortcut-hint {
+  text-align: center;
+  margin-top: 10px;
+  font-size: 10px;
+  color: #555;
+}
+
+.shortcut-hint span {
+  background: #2a2a4a;
+  color: #aaa;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 10px;
 }

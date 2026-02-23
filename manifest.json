@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "RTL Preset",
-  "description": "Automatically apply RTL layout to selected websites",
-  "version": "1.0.0",
-  "permissions": ["storage", "activeTab"],
+  "description": "Automatically apply RTL layout to selected websites + Alt+Click element toggle",
+  "version": "2.0.0",
+  "permissions": ["storage", "activeTab", "tabs"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
@@ -16,6 +16,18 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "commands": {
+    "toggle-rtl": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+R",
+        "mac": "Command+Shift+R"
+      },
+      "description": "Toggle RTL for current page"
+    }
   },
   "content_scripts": [
     {
