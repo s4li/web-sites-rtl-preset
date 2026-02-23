@@ -6,7 +6,8 @@ const quickToggle = document.getElementById('quickToggle');
 const currentSiteLabel = document.getElementById('currentSiteLabel');
 const toggleCurrentSite = document.getElementById('toggleCurrentSite');
 const toggleText = document.getElementById('toggleText');
-const fontSection = document.getElementById('fontSection');
+const optionsPanel = document.getElementById('optionsPanel');
+const uiFixToggle = document.getElementById('uiFixToggle');
 const fontSelect = document.getElementById('fontSelect');
 const exportBtn = document.getElementById('exportBtn');
 const importBtn = document.getElementById('importBtn');
@@ -14,6 +15,7 @@ const importFile = document.getElementById('importFile');
 
 let sites = [];
 let fonts = {};
+let uiFixes = {};
 let currentHostname = '';
 
 function extractHostname(input) {
@@ -32,13 +34,18 @@ function saveFonts() {
   chrome.storage.sync.set({ rtlFonts: fonts });
 }
 
+function saveUIFixes() {
+  chrome.storage.sync.set({ rtlUIFix: uiFixes });
+}
+
 function loadAll() {
-  chrome.storage.sync.get(['rtlSites', 'rtlFonts'], (result) => {
+  chrome.storage.sync.get(['rtlSites', 'rtlFonts', 'rtlUIFix'], (result) => {
     sites = result.rtlSites || [];
     fonts = result.rtlFonts || {};
+    uiFixes = result.rtlUIFix || {};
     renderList();
     updateQuickToggle();
-    updateFontSection();
+    updateOptionsPanel();
   });
 }
 
@@ -80,7 +87,7 @@ function addSite(hostname) {
   saveSites();
   renderList();
   updateQuickToggle();
-  updateFontSection();
+  updateOptionsPanel();
   notifyTabs();
 }
 
@@ -89,7 +96,7 @@ function removeSite(hostname) {
   saveSites();
   renderList();
   updateQuickToggle();
-  updateFontSection();
+  updateOptionsPanel();
   notifyTabs();
 }
 
@@ -109,14 +116,15 @@ function updateQuickToggle() {
   }
 }
 
-function updateFontSection() {
+function updateOptionsPanel() {
   if (!currentHostname) return;
 
   const isActive = sites.includes(currentHostname);
-  fontSection.style.display = isActive ? 'flex' : 'none';
+  optionsPanel.style.display = isActive ? 'block' : 'none';
 
   if (isActive) {
     fontSelect.value = fonts[currentHostname] || fonts._global || 'none';
+    uiFixToggle.checked = !!uiFixes[currentHostname];
   }
 }
 
@@ -159,6 +167,27 @@ toggleCurrentSite.addEventListener('click', () => {
   }
 });
 
+// UI Fix toggle
+uiFixToggle.addEventListener('change', () => {
+  const enabled = uiFixToggle.checked;
+
+  if (enabled) {
+    uiFixes[currentHostname] = true;
+  } else {
+    delete uiFixes[currentHostname];
+  }
+
+  saveUIFixes();
+
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (tabs[0]) {
+      chrome.tabs
+        .sendMessage(tabs[0].id, { action: 'updateUIFix', enabled })
+        .catch(() => {});
+    }
+  });
+});
+
 // Font selector
 fontSelect.addEventListener('change', () => {
   const fontKey = fontSelect.value;
@@ -171,10 +200,11 @@ fontSelect.addEventListener('change', () => {
 
   saveFonts();
 
-  // Notify current tab
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     if (tabs[0]) {
-      chrome.tabs.sendMessage(tabs[0].id, { action: 'updateFont', fontKey }).catch(() => {});
+      chrome.tabs
+        .sendMessage(tabs[0].id, { action: 'updateFont', fontKey })
+        .catch(() => {});
     }
   });
 });
@@ -184,24 +214,30 @@ fontSelect.addEventListener('change', () => {
 // =============================================
 
 exportBtn.addEventListener('click', () => {
-  chrome.storage.sync.get(['rtlSites', 'rtlFonts', 'rtlElements'], (result) => {
-    const data = {
-      rtlSites: result.rtlSites || [],
-      rtlFonts: result.rtlFonts || {},
-      rtlElements: result.rtlElements || {},
-      exportedAt: new Date().toISOString(),
-    };
+  chrome.storage.sync.get(
+    ['rtlSites', 'rtlFonts', 'rtlElements', 'rtlUIFix'],
+    (result) => {
+      const data = {
+        rtlSites: result.rtlSites || [],
+        rtlFonts: result.rtlFonts || {},
+        rtlElements: result.rtlElements || {},
+        rtlUIFix: result.rtlUIFix || {},
+        exportedAt: new Date().toISOString(),
+      };
 
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
+      const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: 'application/json',
+      });
+      const url = URL.createObjectURL(blob);
 
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'rtl-preset-backup.json';
-    a.click();
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'rtl-preset-backup.json';
+      a.click();
 
-    URL.revokeObjectURL(url);
-  });
+      URL.revokeObjectURL(url);
+    }
+  );
 });
 
 importBtn.addEventListener('click', () => {
@@ -218,9 +254,7 @@ importFile.addEventListener('change', (e) => {
       const data = JSON.parse(event.target.result);
 
       if (Array.isArray(data.rtlSites)) {
-        // Merge with existing sites (no duplicates)
-        const merged = [...new Set([...sites, ...data.rtlSites])];
-        sites = merged;
+        sites = [...new Set([...sites, ...data.rtlSites])];
         saveSites();
       }
 
@@ -229,17 +263,21 @@ importFile.addEventListener('change', (e) => {
         saveFonts();
       }
 
+      if (data.rtlUIFix && typeof data.rtlUIFix === 'object') {
+        uiFixes = { ...uiFixes, ...data.rtlUIFix };
+        saveUIFixes();
+      }
+
       if (data.rtlElements && typeof data.rtlElements === 'object') {
         chrome.storage.sync.get(['rtlElements'], (result) => {
-          const existing = result.rtlElements || {};
-          const merged = { ...existing, ...data.rtlElements };
+          const merged = { ...(result.rtlElements || {}), ...data.rtlElements };
           chrome.storage.sync.set({ rtlElements: merged });
         });
       }
 
       renderList();
       updateQuickToggle();
-      updateFontSection();
+      updateOptionsPanel();
       notifyTabs();
     } catch {
       // invalid JSON
@@ -250,7 +288,7 @@ importFile.addEventListener('change', (e) => {
 });
 
 // =============================================
-// Init: get current tab hostname
+// Init
 // =============================================
 
 chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -259,7 +297,7 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       const url = new URL(tabs[0].url);
       currentHostname = url.hostname.replace(/^www\./, '');
       updateQuickToggle();
-      updateFontSection();
+      updateOptionsPanel();
     } catch {
       // ignore invalid URLs
     }

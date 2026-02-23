@@ -71,21 +71,253 @@ function removeFont() {
 }
 
 // =============================================
-// 3) Check & Apply on page load
+// 3) UI Fix Engine
+// =============================================
+
+const SKIP_TAGS = new Set([
+  'SCRIPT', 'STYLE', 'LINK', 'META', 'HEAD', 'TITLE',
+  'BR', 'HR', 'NOSCRIPT', 'TEMPLATE', 'IFRAME',
+]);
+
+const originalStyles = new WeakMap();
+let uiFixObserver = null;
+let uiFixActive = false;
+
+function storeOriginal(el, prop) {
+  if (!originalStyles.has(el)) {
+    originalStyles.set(el, {});
+  }
+  const stored = originalStyles.get(el);
+  if (!(prop in stored)) {
+    stored[prop] = el.style.getPropertyValue(prop);
+  }
+}
+
+function restoreOriginal(el) {
+  const stored = originalStyles.get(el);
+  if (!stored) return;
+  for (const [prop, value] of Object.entries(stored)) {
+    if (value) {
+      el.style.setProperty(prop, value);
+    } else {
+      el.style.removeProperty(prop);
+    }
+  }
+  originalStyles.delete(el);
+  delete el.dataset.rtlUiFixed;
+}
+
+function fixElement(el) {
+  if (SKIP_TAGS.has(el.tagName)) return;
+  if (el.dataset.rtlUiFixed) return;
+
+  const computed = window.getComputedStyle(el);
+  if (computed.display === 'none') return;
+
+  let wasFixed = false;
+
+  // --- 1. Swap position left <-> right ---
+  const position = computed.position;
+  if (position === 'absolute' || position === 'fixed' || position === 'sticky') {
+    const left = computed.left;
+    const right = computed.right;
+    const leftIsAuto = left === 'auto';
+    const rightIsAuto = right === 'auto';
+
+    if (!leftIsAuto && rightIsAuto) {
+      storeOriginal(el, 'left');
+      storeOriginal(el, 'right');
+      el.style.right = left;
+      el.style.left = 'auto';
+      wasFixed = true;
+    } else if (leftIsAuto && !rightIsAuto) {
+      storeOriginal(el, 'left');
+      storeOriginal(el, 'right');
+      el.style.left = right;
+      el.style.right = 'auto';
+      wasFixed = true;
+    }
+  }
+
+  // --- 2. Swap margins ---
+  const ml = parseFloat(computed.marginLeft) || 0;
+  const mr = parseFloat(computed.marginRight) || 0;
+  if (Math.abs(ml - mr) > 2) {
+    storeOriginal(el, 'margin-left');
+    storeOriginal(el, 'margin-right');
+    el.style.marginLeft = computed.marginRight;
+    el.style.marginRight = computed.marginLeft;
+    wasFixed = true;
+  }
+
+  // --- 3. Swap paddings ---
+  const pl = parseFloat(computed.paddingLeft) || 0;
+  const pr = parseFloat(computed.paddingRight) || 0;
+  if (Math.abs(pl - pr) > 2) {
+    storeOriginal(el, 'padding-left');
+    storeOriginal(el, 'padding-right');
+    el.style.paddingLeft = computed.paddingRight;
+    el.style.paddingRight = computed.paddingLeft;
+    wasFixed = true;
+  }
+
+  // --- 4. Swap floats ---
+  const float = computed.float;
+  if (float === 'left') {
+    storeOriginal(el, 'float');
+    el.style.cssFloat = 'right';
+    wasFixed = true;
+  } else if (float === 'right') {
+    storeOriginal(el, 'float');
+    el.style.cssFloat = 'left';
+    wasFixed = true;
+  }
+
+  // --- 5. Swap border-left <-> border-right ---
+  const blw = parseFloat(computed.borderLeftWidth) || 0;
+  const brw = parseFloat(computed.borderRightWidth) || 0;
+  if (Math.abs(blw - brw) > 0.5) {
+    const bl = `${computed.borderLeftWidth} ${computed.borderLeftStyle} ${computed.borderLeftColor}`;
+    const br = `${computed.borderRightWidth} ${computed.borderRightStyle} ${computed.borderRightColor}`;
+    storeOriginal(el, 'border-left');
+    storeOriginal(el, 'border-right');
+    el.style.borderLeft = br;
+    el.style.borderRight = bl;
+    wasFixed = true;
+  }
+
+  // --- 6. Swap border-radius corners ---
+  const btlr = computed.borderTopLeftRadius;
+  const btrr = computed.borderTopRightRadius;
+  const bblr = computed.borderBottomLeftRadius;
+  const bbrr = computed.borderBottomRightRadius;
+  if (btlr !== btrr || bblr !== bbrr) {
+    storeOriginal(el, 'border-top-left-radius');
+    storeOriginal(el, 'border-top-right-radius');
+    storeOriginal(el, 'border-bottom-left-radius');
+    storeOriginal(el, 'border-bottom-right-radius');
+    el.style.borderTopLeftRadius = btrr;
+    el.style.borderTopRightRadius = btlr;
+    el.style.borderBottomLeftRadius = bbrr;
+    el.style.borderBottomRightRadius = bblr;
+    wasFixed = true;
+  }
+
+  // --- 7. Mirror translateX in transforms ---
+  const transform = computed.transform;
+  if (transform && transform !== 'none') {
+    const match = transform.match(/matrix\(([^)]+)\)/);
+    if (match) {
+      const values = match[1].split(',').map((v) => parseFloat(v.trim()));
+      if (Math.abs(values[4]) > 1) {
+        storeOriginal(el, 'transform');
+        values[4] = -values[4];
+        el.style.transform = `matrix(${values.join(', ')})`;
+        wasFixed = true;
+      }
+    }
+  }
+
+  // --- 8. Fix background-position ---
+  const bgPos = computed.backgroundPosition;
+  if (bgPos) {
+    const replaced = bgPos
+      .replace(/\bleft\b/g, '__RIGHT__')
+      .replace(/\bright\b/g, 'left')
+      .replace(/__RIGHT__/g, 'right');
+    if (replaced !== bgPos) {
+      storeOriginal(el, 'background-position');
+      el.style.backgroundPosition = replaced;
+      wasFixed = true;
+    }
+  }
+
+  if (wasFixed) {
+    el.dataset.rtlUiFixed = 'true';
+  }
+}
+
+function enableUIFix() {
+  if (uiFixActive) return;
+  uiFixActive = true;
+
+  // Process existing elements in chunks
+  const elements = Array.from(document.querySelectorAll('*'));
+  const CHUNK = 200;
+  let i = 0;
+
+  function processChunk() {
+    if (!uiFixActive) return;
+    const end = Math.min(i + CHUNK, elements.length);
+    for (; i < end; i++) {
+      fixElement(elements[i]);
+    }
+    if (i < elements.length) {
+      requestAnimationFrame(processChunk);
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => requestAnimationFrame(processChunk));
+  } else {
+    requestAnimationFrame(processChunk);
+  }
+
+  // Watch for dynamically added elements
+  const target = document.body || document.documentElement;
+  uiFixObserver = new MutationObserver((mutations) => {
+    if (!uiFixActive) return;
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
+        if (node.nodeType === 1) {
+          fixElement(node);
+          const children = node.querySelectorAll('*');
+          children.forEach(fixElement);
+        }
+      }
+    }
+  });
+
+  uiFixObserver.observe(target, { childList: true, subtree: true });
+}
+
+function disableUIFix() {
+  uiFixActive = false;
+
+  if (uiFixObserver) {
+    uiFixObserver.disconnect();
+    uiFixObserver = null;
+  }
+
+  document.querySelectorAll('[data-rtl-ui-fixed]').forEach(restoreOriginal);
+}
+
+// =============================================
+// 4) Check & Apply on page load
 // =============================================
 
 function checkAndApply() {
   const hostname = getCurrentHostname();
-  chrome.storage.sync.get(['rtlSites', 'rtlFonts'], (result) => {
+  chrome.storage.sync.get(['rtlSites', 'rtlFonts', 'rtlUIFix'], (result) => {
     const sites = result.rtlSites || [];
     const fonts = result.rtlFonts || {};
+    const uiFixes = result.rtlUIFix || {};
 
     if (sites.includes(hostname)) {
       applyRTL();
       applyFont(fonts[hostname] || fonts._global || 'none');
+
+      if (uiFixes[hostname]) {
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', () => enableUIFix());
+        } else {
+          enableUIFix();
+        }
+      }
     } else {
       removeRTL();
       removeFont();
+      disableUIFix();
     }
 
     // Restore saved element-level toggles
@@ -95,7 +327,7 @@ function checkAndApply() {
 
 checkAndApply();
 
-// Listen for updates from popup
+// Listen for messages from popup
 chrome.runtime.onMessage.addListener((message) => {
   if (message.action === 'updateRTL') {
     const hostname = getCurrentHostname();
@@ -104,10 +336,20 @@ chrome.runtime.onMessage.addListener((message) => {
     } else {
       removeRTL();
       removeFont();
+      disableUIFix();
     }
   }
+
   if (message.action === 'updateFont') {
     applyFont(message.fontKey);
+  }
+
+  if (message.action === 'updateUIFix') {
+    if (message.enabled) {
+      enableUIFix();
+    } else {
+      disableUIFix();
+    }
   }
 });
 
@@ -119,30 +361,44 @@ chrome.storage.onChanged.addListener((changes) => {
     const newSites = changes.rtlSites.newValue || [];
     if (newSites.includes(hostname)) {
       applyRTL();
-      // Also check font
-      chrome.storage.sync.get(['rtlFonts'], (result) => {
+      chrome.storage.sync.get(['rtlFonts', 'rtlUIFix'], (result) => {
         const fonts = result.rtlFonts || {};
+        const uiFixes = result.rtlUIFix || {};
         applyFont(fonts[hostname] || fonts._global || 'none');
+        if (uiFixes[hostname]) enableUIFix();
       });
     } else {
       removeRTL();
       removeFont();
+      disableUIFix();
     }
   }
 
   if (changes.rtlFonts) {
     const fonts = changes.rtlFonts.newValue || {};
     chrome.storage.sync.get(['rtlSites'], (result) => {
-      const sites = result.rtlSites || [];
-      if (sites.includes(hostname)) {
+      if ((result.rtlSites || []).includes(hostname)) {
         applyFont(fonts[hostname] || fonts._global || 'none');
+      }
+    });
+  }
+
+  if (changes.rtlUIFix) {
+    const uiFixes = changes.rtlUIFix.newValue || {};
+    chrome.storage.sync.get(['rtlSites'], (result) => {
+      if ((result.rtlSites || []).includes(hostname)) {
+        if (uiFixes[hostname]) {
+          enableUIFix();
+        } else {
+          disableUIFix();
+        }
       }
     });
   }
 });
 
 // =============================================
-// 4) RTL Clicker - Alt+Click to toggle per element
+// 5) RTL Clicker - Alt+Click to toggle per element
 // =============================================
 
 let currentElement = null;
@@ -205,10 +461,8 @@ function getSelector(el) {
 // Save element toggle to storage
 function saveElementToggle(selector, dir) {
   const hostname = getCurrentHostname();
-  const key = 'rtlElements';
-
-  chrome.storage.sync.get([key], (result) => {
-    const all = result[key] || {};
+  chrome.storage.sync.get(['rtlElements'], (result) => {
+    const all = result.rtlElements || {};
     if (!all[hostname]) all[hostname] = {};
 
     if (dir === null) {
@@ -217,7 +471,7 @@ function saveElementToggle(selector, dir) {
       all[hostname][selector] = dir;
     }
 
-    chrome.storage.sync.set({ [key]: all });
+    chrome.storage.sync.set({ rtlElements: all });
   });
 }
 
@@ -230,7 +484,6 @@ function restoreElementToggles() {
     const toggles = all[hostname];
     if (!toggles) return;
 
-    // Wait for DOM to be ready
     const apply = () => {
       for (const [selector, dir] of Object.entries(toggles)) {
         try {
@@ -240,7 +493,7 @@ function restoreElementToggles() {
             el.style.textAlign = dir === 'rtl' ? 'right' : 'left';
           }
         } catch {
-          // invalid selector, skip
+          // invalid selector
         }
       }
     };
@@ -316,11 +569,11 @@ document.addEventListener(
       target.style.direction = newDir;
       target.style.textAlign = newDir === 'rtl' ? 'right' : 'left';
 
-      // Save to storage
+      // Save
       const selector = getSelector(target);
       saveElementToggle(selector, newDir);
 
-      // Green flash feedback
+      // Green flash
       target.style.outline = '2px solid #22c55e';
       setTimeout(() => {
         target.style.outline = target.dataset.originalOutline || '';
