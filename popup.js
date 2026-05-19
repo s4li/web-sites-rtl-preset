@@ -17,6 +17,27 @@ let sites = [];
 let fonts = {};
 let uiFixes = {};
 let currentHostname = '';
+let dataLoaded = false;
+
+function safeStorageGet(keys, callback) {
+  chrome.storage.sync.get(keys, (result) => {
+    if (chrome.runtime.lastError) {
+      console.warn('RTL Preset storage read error:', chrome.runtime.lastError.message);
+      callback({});
+      return;
+    }
+    callback(result);
+  });
+}
+
+function safeStorageSet(data, callback) {
+  chrome.storage.sync.set(data, () => {
+    if (chrome.runtime.lastError) {
+      console.warn('RTL Preset storage write error:', chrome.runtime.lastError.message);
+    }
+    if (callback) callback();
+  });
+}
 
 function extractHostname(input) {
   let hostname = input.trim().toLowerCase();
@@ -27,22 +48,23 @@ function extractHostname(input) {
 }
 
 function saveSites() {
-  chrome.storage.sync.set({ rtlSites: sites });
+  safeStorageSet({ rtlSites: sites });
 }
 
 function saveFonts() {
-  chrome.storage.sync.set({ rtlFonts: fonts });
+  safeStorageSet({ rtlFonts: fonts });
 }
 
 function saveUIFixes() {
-  chrome.storage.sync.set({ rtlUIFix: uiFixes });
+  safeStorageSet({ rtlUIFix: uiFixes });
 }
 
 function loadAll() {
-  chrome.storage.sync.get(['rtlSites', 'rtlFonts', 'rtlUIFix'], (result) => {
+  safeStorageGet(['rtlSites', 'rtlFonts', 'rtlUIFix'], (result) => {
     sites = result.rtlSites || [];
     fonts = result.rtlFonts || {};
     uiFixes = result.rtlUIFix || {};
+    dataLoaded = true;
     renderList();
     updateQuickToggle();
     updateOptionsPanel();
@@ -214,7 +236,7 @@ fontSelect.addEventListener('change', () => {
 // =============================================
 
 exportBtn.addEventListener('click', () => {
-  chrome.storage.sync.get(
+  safeStorageGet(
     ['rtlSites', 'rtlFonts', 'rtlElements', 'rtlUIFix'],
     (result) => {
       const data = {
@@ -269,9 +291,9 @@ importFile.addEventListener('change', (e) => {
       }
 
       if (data.rtlElements && typeof data.rtlElements === 'object') {
-        chrome.storage.sync.get(['rtlElements'], (result) => {
+        safeStorageGet(['rtlElements'], (result) => {
           const merged = { ...(result.rtlElements || {}), ...data.rtlElements };
-          chrome.storage.sync.set({ rtlElements: merged });
+          safeStorageSet({ rtlElements: merged });
         });
       }
 
@@ -296,8 +318,10 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     try {
       const url = new URL(tabs[0].url);
       currentHostname = url.hostname.replace(/^www\./, '');
-      updateQuickToggle();
-      updateOptionsPanel();
+      if (dataLoaded) {
+        updateQuickToggle();
+        updateOptionsPanel();
+      }
     } catch {
       // ignore invalid URLs
     }

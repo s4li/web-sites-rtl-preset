@@ -2,15 +2,26 @@
 // Badge indicator + Keyboard shortcut handler
 // =============================================
 
+function safeStorageGet(keys, callback) {
+  chrome.storage.sync.get(keys, (result) => {
+    if (chrome.runtime.lastError) {
+      console.warn('RTL Preset storage read error:', chrome.runtime.lastError.message);
+      callback({});
+      return;
+    }
+    callback(result);
+  });
+}
+
 function updateBadge(tabId, url) {
-  if (!url || url.startsWith('chrome://') || url.startsWith('chrome-extension://')) {
+  if (!url || url.startsWith('chrome://') || url.startsWith('chrome-extension://') || url.startsWith('brave://')) {
     chrome.action.setBadgeText({ text: '', tabId });
     return;
   }
 
   try {
     const hostname = new URL(url).hostname.replace(/^www\./, '');
-    chrome.storage.sync.get(['rtlSites'], (result) => {
+    safeStorageGet(['rtlSites'], (result) => {
       const sites = result.rtlSites || [];
       if (sites.includes(hostname)) {
         chrome.action.setBadgeText({ text: 'RTL', tabId });
@@ -49,16 +60,16 @@ chrome.storage.onChanged.addListener((changes) => {
   }
 });
 
-// Keyboard shortcut: Ctrl+Shift+R to toggle RTL
+// Keyboard shortcut: Ctrl+Shift+L to toggle RTL
 chrome.commands.onCommand.addListener((command) => {
   if (command === 'toggle-rtl') {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       const tab = tabs[0];
-      if (!tab?.url || tab.url.startsWith('chrome://')) return;
+      if (!tab?.url || tab.url.startsWith('chrome://') || tab.url.startsWith('brave://')) return;
 
       const hostname = new URL(tab.url).hostname.replace(/^www\./, '');
 
-      chrome.storage.sync.get(['rtlSites'], (result) => {
+      safeStorageGet(['rtlSites'], (result) => {
         const sites = result.rtlSites || [];
         const index = sites.indexOf(hostname);
 
@@ -68,7 +79,11 @@ chrome.commands.onCommand.addListener((command) => {
           sites.push(hostname);
         }
 
-        chrome.storage.sync.set({ rtlSites: sites });
+        chrome.storage.sync.set({ rtlSites: sites }, () => {
+          if (chrome.runtime.lastError) {
+            console.warn('RTL Preset storage write error:', chrome.runtime.lastError.message);
+          }
+        });
       });
     });
   }

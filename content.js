@@ -6,6 +6,25 @@ function getCurrentHostname() {
   return window.location.hostname.replace(/^www\./, '');
 }
 
+function safeStorageGet(keys, callback) {
+  chrome.storage.sync.get(keys, (result) => {
+    if (chrome.runtime.lastError) {
+      console.warn('RTL Preset storage read error:', chrome.runtime.lastError.message);
+      callback({});
+      return;
+    }
+    callback(result);
+  });
+}
+
+function safeStorageSet(data) {
+  chrome.storage.sync.set(data, () => {
+    if (chrome.runtime.lastError) {
+      console.warn('RTL Preset storage write error:', chrome.runtime.lastError.message);
+    }
+  });
+}
+
 function applyRTL() {
   document.documentElement.setAttribute('dir', 'rtl');
   document.documentElement.style.direction = 'rtl';
@@ -55,7 +74,7 @@ function applyFont(fontKey) {
   document.head.appendChild(fontLinkEl);
 
   fontStyleEl = document.createElement('style');
-  fontStyleEl.textContent = `* { font-family: "${font.name}", Tahoma, Arial, sans-serif !important; }`;
+  fontStyleEl.textContent = `*:not([class*="icon"]):not([class*="Icon"]):not(.fa):not(.fas):not(.far):not(.fab):not(.fal):not(.fad):not(.material-icons):not(.material-icons-outlined):not(.material-icons-round):not(.material-symbols-outlined):not(.glyphicon):not([data-icon]):not(.bi):not([class^="bi-"]) { font-family: "${font.name}", Tahoma, Arial, sans-serif !important; }`;
   document.head.appendChild(fontStyleEl);
 }
 
@@ -206,15 +225,44 @@ function fixElement(el) {
   // --- 7. Mirror translateX in transforms ---
   const transform = computed.transform;
   if (transform && transform !== 'none') {
-    const match = transform.match(/matrix\(([^)]+)\)/);
-    if (match) {
-      const values = match[1].split(',').map((v) => parseFloat(v.trim()));
+    const matrixMatch = transform.match(/matrix\(([^)]+)\)/);
+    if (matrixMatch) {
+      const values = matrixMatch[1].split(',').map((v) => parseFloat(v.trim()));
       if (Math.abs(values[4]) > 1) {
         storeOriginal(el, 'transform');
         values[4] = -values[4];
         el.style.transform = `matrix(${values.join(', ')})`;
         wasFixed = true;
       }
+    }
+    const matrix3dMatch = !matrixMatch && transform.match(/matrix3d\(([^)]+)\)/);
+    if (matrix3dMatch) {
+      const values = matrix3dMatch[1].split(',').map((v) => parseFloat(v.trim()));
+      if (Math.abs(values[12]) > 1) {
+        storeOriginal(el, 'transform');
+        values[12] = -values[12];
+        el.style.transform = `matrix3d(${values.join(', ')})`;
+        wasFixed = true;
+      }
+    }
+  }
+
+  // --- 7b. Mirror translateX in style attribute ---
+  const rawTransform = el.style.transform;
+  if (rawTransform) {
+    let mirrored = rawTransform;
+    mirrored = mirrored.replace(/translateX\(\s*(-?[\d.]+)(px|%|rem|em|vw)\s*\)/g, (_, val, unit) => {
+      const n = parseFloat(val);
+      return n !== 0 ? `translateX(${-n}${unit})` : `translateX(0${unit})`;
+    });
+    mirrored = mirrored.replace(/translate\(\s*(-?[\d.]+)(px|%|rem|em|vw)\s*,/g, (_, val, unit) => {
+      const n = parseFloat(val);
+      return n !== 0 ? `translate(${-n}${unit},` : `translate(0${unit},`;
+    });
+    if (mirrored !== rawTransform) {
+      storeOriginal(el, 'transform');
+      el.style.transform = mirrored;
+      wasFixed = true;
     }
   }
 
@@ -298,7 +346,7 @@ function disableUIFix() {
 
 function checkAndApply() {
   const hostname = getCurrentHostname();
-  chrome.storage.sync.get(['rtlSites', 'rtlFonts', 'rtlUIFix'], (result) => {
+  safeStorageGet(['rtlSites', 'rtlFonts', 'rtlUIFix'], (result) => {
     const sites = result.rtlSites || [];
     const fonts = result.rtlFonts || {};
     const uiFixes = result.rtlUIFix || {};
@@ -361,7 +409,7 @@ chrome.storage.onChanged.addListener((changes) => {
     const newSites = changes.rtlSites.newValue || [];
     if (newSites.includes(hostname)) {
       applyRTL();
-      chrome.storage.sync.get(['rtlFonts', 'rtlUIFix'], (result) => {
+      safeStorageGet(['rtlFonts', 'rtlUIFix'], (result) => {
         const fonts = result.rtlFonts || {};
         const uiFixes = result.rtlUIFix || {};
         applyFont(fonts[hostname] || fonts._global || 'none');
@@ -376,7 +424,7 @@ chrome.storage.onChanged.addListener((changes) => {
 
   if (changes.rtlFonts) {
     const fonts = changes.rtlFonts.newValue || {};
-    chrome.storage.sync.get(['rtlSites'], (result) => {
+    safeStorageGet(['rtlSites'], (result) => {
       if ((result.rtlSites || []).includes(hostname)) {
         applyFont(fonts[hostname] || fonts._global || 'none');
       }
@@ -385,7 +433,7 @@ chrome.storage.onChanged.addListener((changes) => {
 
   if (changes.rtlUIFix) {
     const uiFixes = changes.rtlUIFix.newValue || {};
-    chrome.storage.sync.get(['rtlSites'], (result) => {
+    safeStorageGet(['rtlSites'], (result) => {
       if ((result.rtlSites || []).includes(hostname)) {
         if (uiFixes[hostname]) {
           enableUIFix();
@@ -461,7 +509,7 @@ function getSelector(el) {
 // Save element toggle to storage
 function saveElementToggle(selector, dir) {
   const hostname = getCurrentHostname();
-  chrome.storage.sync.get(['rtlElements'], (result) => {
+  safeStorageGet(['rtlElements'], (result) => {
     const all = result.rtlElements || {};
     if (!all[hostname]) all[hostname] = {};
 
@@ -471,7 +519,7 @@ function saveElementToggle(selector, dir) {
       all[hostname][selector] = dir;
     }
 
-    chrome.storage.sync.set({ rtlElements: all });
+    safeStorageSet({ rtlElements: all });
   });
 }
 
@@ -479,7 +527,7 @@ function saveElementToggle(selector, dir) {
 function restoreElementToggles() {
   const hostname = getCurrentHostname();
 
-  chrome.storage.sync.get(['rtlElements'], (result) => {
+  safeStorageGet(['rtlElements'], (result) => {
     const all = result.rtlElements || {};
     const toggles = all[hostname];
     if (!toggles) return;
