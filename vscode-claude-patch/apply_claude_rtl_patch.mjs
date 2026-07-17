@@ -149,10 +149,21 @@ const doneExec = isWin
   ? `require("child_process").exec('powershell -NoProfile -c "[console]::beep(800,300);[console]::beep(1000,300)"')`
   : `require("child_process").exec("afplay /System/Library/Sounds/Glass.aiff")`;
 
-const A_OLD = 'async requestToolPermission(e,t,r,i,n){if(this.channels';
-const A_NEW = `async requestToolPermission(e,t,r,i,n){try{if(!globalThis._sndPerm||Date.now()-globalThis._sndPerm>5000){globalThis._sndPerm=Date.now();${permExec}}}catch(e){}if(this.channels`;
-const B_OLD = 'else if(e.request.hasUnseenCompletion)r="claude-logo-done.svg";else r="claude-logo.svg"';
-const B_NEW = `else if(e.request.hasUnseenCompletion){r="claude-logo-done.svg";if(!globalThis._sndDone||Date.now()-globalThis._sndDone>5000){globalThis._sndDone=Date.now();try{${doneExec}}catch(e){}}}else r="claude-logo.svg"`;
+// Parameter/variable names are minified and DO change between versions (e.g. 2.1.205 had
+// requestToolPermission(e,t,r,i,n) but 2.1.212 has (e,t,r,n,i)). So match structurally with
+// regexes that capture whatever names are in use, rather than hardcoding them.
+
+// 3A — insert the permission sound right after the opening `{`, before `if(this.channels`.
+const A_RE = () => /async requestToolPermission\(([^)]*)\)\{(?=if\(this\.channels)/g;
+const A_SUB = (_m, params) =>
+  `async requestToolPermission(${params}){try{if(!globalThis._sndPerm||Date.now()-globalThis._sndPerm>5000){globalThis._sndPerm=Date.now();${permExec}}}catch(e){}`;
+
+// 3B — wrap the completion branch. \2 backreference pins the same target var on both sides.
+const B_RE = () => /else if\(([A-Za-z_$][\w$]*)\.request\.hasUnseenCompletion\)([A-Za-z_$][\w$]*)="claude-logo-done\.svg";else \2="claude-logo\.svg"/g;
+const B_SUB = (_m, condVar, tgtVar) =>
+  `else if(${condVar}.request.hasUnseenCompletion){${tgtVar}="claude-logo-done.svg";if(!globalThis._sndDone||Date.now()-globalThis._sndDone>5000){globalThis._sndDone=Date.now();try{${doneExec}}catch(e){}}}else ${tgtVar}="claude-logo.svg"`;
+
+const countMatches = (src, re) => (src.match(re) || []).length;
 
 /* ----------------------------------------------------------------- main */
 const verName = findLatest();
@@ -185,10 +196,10 @@ if (!cssDone) {
     '\n  Re-derive the suffixes (see CLAUDE.md) before patching this version.');
 }
 if (!extDone) {
-  const aN = extSrc.split(A_OLD).length - 1;
-  const bN = extSrc.split(B_OLD).length - 1;
-  if (aN !== 1) die(`extension.js 3A pattern matched ${aN}× (expected 1) — code shape changed.`);
-  if (bN !== 1) die(`extension.js 3B pattern matched ${bN}× (expected 1) — code shape changed.`);
+  const aN = countMatches(extSrc, A_RE());
+  const bN = countMatches(extSrc, B_RE());
+  if (aN !== 1) die(`extension.js 3A (requestToolPermission) matched ${aN}× (expected 1) — code shape changed.`);
+  if (bN !== 1) die(`extension.js 3B (hasUnseenCompletion) matched ${bN}× (expected 1) — code shape changed.`);
 }
 
 // Backups (only if not already present)
@@ -227,7 +238,8 @@ if (!jsDone) {
 
 // PATCH 3
 if (!extDone) {
-  let out = extSrc.split(A_OLD).join(A_NEW).split(B_OLD).join(B_NEW);
+  const out = extSrc.replace(A_RE(), A_SUB).replace(B_RE(), B_SUB);
+  if (!out.includes('_sndPerm') || !out.includes('_sndDone')) die('PATCH 3 substitution produced no sound hooks — aborting.');
   // validate before writing
   // eslint-disable-next-line no-new-func
   new Function(out);
