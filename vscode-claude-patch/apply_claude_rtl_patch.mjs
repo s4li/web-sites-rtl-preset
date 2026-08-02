@@ -115,30 +115,45 @@ ${JS_MARK}
 })();
 /* ===== End RTL Toggle Patch ===== */
 
-/* ===== Bidi artifact cleanup ===== */
+/* ===== Bidi artifact cleanup + per-run isolation ===== */
 ;(function(){
-  // Cursor blocks (U+258A/258C), "parallel lines" artifact (U+2261), bidi/zero-width marks.
-  // U+200C (ZWNJ / نیم‌فاصله) and U+200D (ZWJ) are EXCLUDED — required Persian orthography.
-  var RE = /[\\u258A\\u258C\\u2261\\u200B\\u200E\\u200F\\u202A-\\u202E\\u2060-\\u2064\\u2066-\\u2069\\uFEFF]/g;
+  // Strip artifacts. U+200C/U+200D (ZWNJ/ZWJ) preserved. U+2068/U+2069 (FSI/PDI) are NOT
+  // stripped — we INSERT them below to isolate each LTR run so neutrals/numbers (parens,
+  // guillemets, digits) resolve INSIDE the run instead of jumping to the RTL/LTR boundary.
+  var RE = /[\\u258A\\u258C\\u2261\\u200B\\u200E\\u200F\\u202A-\\u202E\\u2060-\\u2064\\uFEFF]/g;
   // Arabic harakat (fatha/damma/kasra/tanwin/shadda/sukun) — never written in informal Persian.
   var RE_HARAKAT = /[\\u064B-\\u0652]/g;
+  // A "run" of Latin letters / digits (ASCII, Arabic-Indic, Persian) + inner . _ / : # - and spaces.
+  var RUN = /[#@]?[A-Za-z0-9\\u0660-\\u0669\\u06F0-\\u06F9](?:[A-Za-z0-9\\u0660-\\u0669\\u06F0-\\u06F9 ._/:#-]*[A-Za-z0-9\\u0660-\\u0669\\u06F0-\\u06F9])?/g;
+  var FSI='\\u2068', PDI='\\u2069';
+  function inCode(node){for(var p=node.parentNode;p;p=p.parentNode){if(p.nodeType===1){var tg=p.tagName;if(tg==='CODE'||tg==='PRE')return true}}return false}
   function scanNode(node){
     if(node.nodeType===3){
       var t=node.textContent;
-      var clean=t.replace(RE,'').replace(RE_HARAKAT,'');
+      if(t.indexOf(FSI)!==-1)return;                 // already isolated (idempotent, no observer loop)
+      if(inCode(node)){                              // code/pre: strip artifacts only, never isolate
+        var c=t.replace(RE,'').replace(RE_HARAKAT,'');
+        if(c!==t){node.textContent=c}return;
+      }
+      var clean=t.replace(RE,'').replace(RE_HARAKAT,'').replace(RUN,function(m){return FSI+m+PDI});
       if(clean!==t){node.textContent=clean}
     }else{
       for(var i=0;i<node.childNodes.length;i++)scanNode(node.childNodes[i]);
     }
   }
-  function cleanAllMessages(){ document.querySelectorAll('.messagesContainer_07S1Yg').forEach(scanNode); }
+  function cleanAllMessages(){document.querySelectorAll('.messagesContainer_07S1Yg').forEach(scanNode)}
   var scheduled=false;
   function schedule(){if(scheduled)return;scheduled=true;requestAnimationFrame(function(){scheduled=false;cleanAllMessages()})}
   var obs=new MutationObserver(schedule);
   function start(){try{obs.observe(document.body,{childList:true,subtree:true,characterData:true})}catch(e){}cleanAllMessages()}
   if(document.body){start()}else{document.addEventListener('DOMContentLoaded',start)}
+  // Keep the clipboard clean: strip inserted isolates + artifacts when copying from a message.
+  function inMsg(n){for(var p=n;p;p=p.parentNode){if(p.nodeType===1&&p.classList&&p.classList.contains('messagesContainer_07S1Yg'))return true}return false}
+  function onCopy(e){try{var s=window.getSelection();if(!s||s.isCollapsed||!inMsg(s.anchorNode))return;var txt=s.toString().replace(/[\\u2068\\u2069]/g,'').replace(RE,'').replace(RE_HARAKAT,'');(e.clipboardData||window.clipboardData).setData('text/plain',txt);e.preventDefault()}catch(err){}}
+  document.addEventListener('copy',onCopy,true);
+  document.addEventListener('cut',onCopy,true);
 })();
-/* ===== End Bidi artifact cleanup ===== */
+/* ===== End Bidi artifact cleanup + per-run isolation ===== */
 `;
 
 /* --------------------------------------------------------------- PATCH 3 (extension.js) */
@@ -233,7 +248,12 @@ if (!jsDone) {
   if (t('می' + zwnj + 'رود') !== 'می' + zwnj + 'رود')
     die('cleanup regex would strip ZWNJ (نیم‌فاصله) — refusing.');
   if (t('lock≡ش') !== 'lockش') die('cleanup regex does not strip U+2261 — check.');
-  ok('PATCH 2 (index.js) — toggle + cleanup; syntax OK, ZWNJ preserved, ≡ stripped');
+  const iso = 'a' + String.fromCharCode(0x2068) + 'b' + String.fromCharCode(0x2069) + 'c';
+  if (t(iso) !== iso) die('cleanup regex strips FSI/PDI — per-run isolation would be erased.');
+  if (!mod.includes('u2068') || !mod.includes('RUN ='))
+    die('per-run isolation (FSI wrapping) missing from index.js.');
+  if (!mod.includes("addEventListener('copy'")) die('copy-clean handler missing from index.js.');
+  ok('PATCH 2 (index.js) — toggle + cleanup + per-run isolation; ZWNJ preserved, ≡ stripped, FSI kept, copy-clean present');
 } else ok('PATCH 2 already present — skipped');
 
 // PATCH 3

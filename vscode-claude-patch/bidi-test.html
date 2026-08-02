@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="fa">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bidi approaches — comparison</title>
+<style>
+  body{background:#1e1e1e;color:#e6e6e6;font-family:-apple-system,"Segoe UI",Tahoma,sans-serif;
+       font-size:15px;line-height:1.9;margin:0;padding:24px;}
+  h1{font-size:18px;color:#9cdcfe;margin:0 0 4px}
+  .note{color:#888;font-size:13px;margin:0 0 20px}
+  .col{background:#252526;border:1px solid #3c3c3c;border-radius:8px;padding:14px 18px;margin:0 0 18px}
+  .col > .label{display:block;color:#c586c0;font-weight:700;font-size:13px;margin:0 0 10px;
+                border-bottom:1px solid #3c3c3c;padding-bottom:6px;direction:ltr;text-align:left}
+  .verdict{color:#6a9955;font-size:12px}
+  .bad{color:#f14c4c;font-size:12px}
+  p.msg{margin:0 0 12px}
+  code{background:#333;border-radius:4px;padding:1px 5px;font-family:"SF Mono",Menlo,monospace;font-size:.9em}
+
+  /* ===== the 4 strategies ===== */
+  .base p.msg      { direction:rtl; text-align:right; }
+  .iso  p.msg      { direction:rtl; text-align:right; unicode-bidi:isolate; }
+  .pt   p.msg      { direction:rtl; text-align:right; unicode-bidi:plaintext; }
+  .bdi  p.msg      { direction:rtl; text-align:right; unicode-bidi:isolate; }
+  .bdi  bdi        { /* per-run isolate; bdi already isolates + auto-detects */ }
+  /* keep inline code coherent LTR in every strategy */
+  p.msg code       { direction:ltr; unicode-bidi:isolate; }
+</style>
+</head>
+<body>
+<h1>مقایسه‌ی روش‌های bidi روی متنِ واقعیِ تو</h1>
+<p class="note">هر بلوک یک استراتژیه. متنِ منبع در همه یکیه. ببین کدوم بلوک روان‌تر و درست‌تر خونده می‌شه (کلمه‌ی اولِ هر خط باید سمت راست، ترتیب منطقی درست).</p>
+
+<div class="col base">
+  <span class="label">1) direction:rtl فقط (پایه)</span>
+  <div class="samples"></div>
+</div>
+
+<div class="col iso">
+  <span class="label">2) direction:rtl + unicode-bidi:isolate  ← الان روی extension همینه</span>
+  <div class="samples"></div>
+</div>
+
+<div class="col bdi">
+  <span class="label">3) isolate + هر run انگلیسی/عدد داخل &lt;bdi&gt;  ← راه‌حل پیشنهادی</span>
+  <span class="verdict">این باید پرانتز/گیومه/عددها رو سرجاشون بذاره</span>
+  <div class="samples"></div>
+</div>
+
+<div class="col pt">
+  <span class="label">4) unicode-bidi:plaintext  ← چرا ردش کردیم</span>
+  <span class="bad">خط‌هایی که با انگلیسی شروع می‌شن LTR می‌شن</span>
+  <div class="samples"></div>
+</div>
+
+<script>
+// The exact problematic paragraphs (source / logical order), copied from the user.
+var SAMPLES = [
+  'PR #4 هم باز مانده — {feat/frontend-talamala}، از ۲۹ ژوئن، «awaiting visual review». main از آن زمان ۴۱۶ commit جلو رفته و آن شاخه فقط ۳ commit دارد که روی main نیست.',
+  'یعنی عملا مرده است: نسخه‌ی طلاملا در PR #26 بازنویسی و وصل شده. نگه‌داشتنش فقط این خطر را دارد که یک روز کسی merge‌اش کند و کار جدید را زیر بگیرد.',
+  'پیشنهاد: ببندش (بدون merge) با یک کامنت که «جایگزین شد با #26». اگر بگویی می‌بندم — ولی چون frontend است و قاعده‌مان می‌گوید تصمیمش با توست، خودم نبستم.'
+];
+// {..} marks an inline-code span in the source.
+
+// Build a plain paragraph (text + inline code), no per-run isolation.
+function buildPlain(text){
+  var p=document.createElement('p'); p.className='msg';
+  text.split(/(\{[^}]*\})/).forEach(function(seg){
+    if(seg.charAt(0)==='{'){ var c=document.createElement('code'); c.textContent=seg.slice(1,-1); p.appendChild(c); }
+    else if(seg){ p.appendChild(document.createTextNode(seg)); }
+  });
+  return p;
+}
+
+// Strategy 3: wrap every Latin/digit run in <bdi> so neutrals resolve inside the run.
+// Run = alnum (ASCII + Arabic-Indic + Persian digits) with inner . _ / : # - and spaces.
+var RUN=/[A-Za-z0-9٠-٩۰-۹](?:[A-Za-z0-9٠-٩۰-۹ ._\/:#\-]*[A-Za-z0-9٠-٩۰-۹])?/g;
+function wrapRuns(textNode){
+  var text=textNode.textContent, out=document.createDocumentFragment(), last=0, m;
+  RUN.lastIndex=0;
+  while((m=RUN.exec(text))){
+    if(m.index>last) out.appendChild(document.createTextNode(text.slice(last,m.index)));
+    var b=document.createElement('bdi'); b.textContent=m[0]; out.appendChild(b);
+    last=m.index+m[0].length;
+  }
+  if(last<text.length) out.appendChild(document.createTextNode(text.slice(last)));
+  textNode.parentNode.replaceChild(out, textNode);
+}
+function buildBdi(text){
+  var p=buildPlain(text);
+  // walk direct text nodes (skip inside <code>)
+  Array.prototype.slice.call(p.childNodes).forEach(function(n){
+    if(n.nodeType===3) wrapRuns(n);
+  });
+  return p;
+}
+
+document.querySelectorAll('.base .samples, .iso .samples, .pt .samples').forEach(function(host){
+  SAMPLES.forEach(function(t){ host.appendChild(buildPlain(t)); });
+});
+document.querySelectorAll('.bdi .samples').forEach(function(host){
+  SAMPLES.forEach(function(t){ host.appendChild(buildBdi(t)); });
+});
+</script>
+</body>
+</html>
