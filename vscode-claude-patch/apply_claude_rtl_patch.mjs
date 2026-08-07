@@ -53,7 +53,7 @@ function assertSyntax(file) {
 const CSS_MARK = '/* ===== RTL Patch (messages only) ===== */';
 const CSS_PATCH = `
 ${CSS_MARK}
-.messagesContainer_07S1Yg { direction: rtl; text-align: right; }
+.messagesContainer_07S1Yg, .chatContainer_07S1Yg { direction: rtl; text-align: right; }
 /* Message blocks: force RTL base with isolate (NOT plaintext — plaintext flips any line
    that starts with an English word/number to LTR and garbles the Persian sentence). */
 .message_07S1Yg { direction: rtl; text-align: right; unicode-bidi: isolate; }
@@ -127,9 +127,13 @@ ${JS_MARK}
   var RUN = /[#@]?[A-Za-z0-9\\u0660-\\u0669\\u06F0-\\u06F9](?:[A-Za-z0-9\\u0660-\\u0669\\u06F0-\\u06F9 ._/:#-]*[A-Za-z0-9\\u0660-\\u0669\\u06F0-\\u06F9])?/g;
   var FSI='\\u2068', PDI='\\u2069';
   function inCode(node){for(var p=node.parentNode;p;p=p.parentNode){if(p.nodeType===1){var tg=p.tagName;if(tg==='CODE'||tg==='PRE')return true}}return false}
+  // NEVER touch the input box / any editable: chatContainer_ includes the composer, and inserting
+  // FSI/PDI into a contenteditable breaks typing (cursor jumps, stray isolate chars appear).
+  function inEditable(node){for(var p=node.parentNode;p;p=p.parentNode){if(p.nodeType===1){if(p.isContentEditable)return true;var tg=p.tagName;if(tg==='TEXTAREA'||tg==='INPUT')return true;var cn=p.className;if(cn&&String(cn).indexOf('messageInput')!==-1)return true}}return false}
   function scanNode(node){
     if(node.nodeType===3){
       var t=node.textContent;
+      if(inEditable(node))return;                    // leave the composer/input completely alone
       if(t.indexOf(FSI)!==-1)return;                 // already isolated (idempotent, no observer loop)
       if(inCode(node)){                              // code/pre: strip artifacts only, never isolate
         var c=t.replace(RE,'').replace(RE_HARAKAT,'');
@@ -141,14 +145,17 @@ ${JS_MARK}
       for(var i=0;i<node.childNodes.length;i++)scanNode(node.childNodes[i]);
     }
   }
-  function cleanAllMessages(){document.querySelectorAll('.messagesContainer_07S1Yg').forEach(scanNode)}
+  // Suffix- AND name-agnostic: the message container was renamed messagesContainer_ -> chatContainer_
+  // around 2.1.221. Match both, any hash, so it works across versions/workspaces.
+  function msgRoots(){return document.querySelectorAll('[class*="messagesContainer_"],[class*="chatContainer_"]')}
+  function cleanAllMessages(){msgRoots().forEach(scanNode)}
   var scheduled=false;
   function schedule(){if(scheduled)return;scheduled=true;requestAnimationFrame(function(){scheduled=false;cleanAllMessages()})}
   var obs=new MutationObserver(schedule);
   function start(){try{obs.observe(document.body,{childList:true,subtree:true,characterData:true})}catch(e){}cleanAllMessages()}
   if(document.body){start()}else{document.addEventListener('DOMContentLoaded',start)}
   // Keep the clipboard clean: strip inserted isolates + artifacts when copying from a message.
-  function inMsg(n){for(var p=n;p;p=p.parentNode){if(p.nodeType===1&&p.classList&&p.classList.contains('messagesContainer_07S1Yg'))return true}return false}
+  function inMsg(n){for(var p=n;p;p=p.parentNode){if(p.nodeType===1&&p.className){var cn=String(p.className);if(cn.indexOf('messagesContainer_')!==-1||cn.indexOf('chatContainer_')!==-1)return true}}return false}
   function onCopy(e){try{var s=window.getSelection();if(!s||s.isCollapsed||!inMsg(s.anchorNode))return;var txt=s.toString().replace(/[\\u2068\\u2069]/g,'').replace(RE,'').replace(RE_HARAKAT,'');(e.clipboardData||window.clipboardData).setData('text/plain',txt);e.preventDefault()}catch(err){}}
   document.addEventListener('copy',onCopy,true);
   document.addEventListener('cut',onCopy,true);
