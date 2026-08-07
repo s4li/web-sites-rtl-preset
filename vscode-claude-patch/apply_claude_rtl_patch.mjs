@@ -53,7 +53,10 @@ function assertSyntax(file) {
 const CSS_MARK = '/* ===== RTL Patch (messages only) ===== */';
 const CSS_PATCH = `
 ${CSS_MARK}
-.messagesContainer_07S1Yg, .chatContainer_07S1Yg { direction: rtl; text-align: right; }
+/* Only the messages LIST gets container-level RTL — NOT the broad chatContainer_ wrapper, which
+   also holds the composer and the "/" menu (model picker / usage) that must stay LTR. Individual
+   messages are made RTL by the per-message rules below, so they are covered regardless. */
+.messagesContainer_07S1Yg { direction: rtl; text-align: right; }
 /* Message blocks: force RTL base with isolate (NOT plaintext — plaintext flips any line
    that starts with an English word/number to LTR and garbles the Persian sentence). */
 .message_07S1Yg { direction: rtl; text-align: right; unicode-bidi: isolate; }
@@ -76,6 +79,14 @@ ${CSS_MARK}
 .messageInput_cKsPxg { direction: rtl; text-align: right; }
 .messageInputContainer_cKsPxg { direction: rtl; text-align: right; }
 .inputFooter_gGYT1w { direction: ltr; }
+/* Slash-command / model-selector / usage menus & dropdowns are UI chrome — force LTR so they
+   don't inherit RTL from any surrounding container. Suffix-agnostic to survive version bumps. */
+[class*="menuPopup_"], [class*="menuPopupV2_"], [class*="menuPopupRight_"], [class*="menuItem_"],
+[class*="menuHeader_"], [class*="menuItemLabel_"], [class*="menuItemDescription_"],
+[class*="commandList_"], [class*="commandItem_"], [class*="commandContent_"], [class*="commandLabel_"], [class*="commandDescription_"],
+[class*="contextMenu_"], [class*="dropdown_"], [class*="modelContent_"], [class*="modelDescription_"] {
+  direction: ltr; text-align: left;
+}
 /* ===== AskUserQuestion popup RTL ===== */
 .questionsContainer_hONcXw { direction: rtl; text-align: right; }
 .questionBlock_hONcXw { direction: rtl; text-align: right; }
@@ -130,10 +141,13 @@ ${JS_MARK}
   // NEVER touch the input box / any editable: chatContainer_ includes the composer, and inserting
   // FSI/PDI into a contenteditable breaks typing (cursor jumps, stray isolate chars appear).
   function inEditable(node){for(var p=node.parentNode;p;p=p.parentNode){if(p.nodeType===1){if(p.isContentEditable)return true;var tg=p.tagName;if(tg==='TEXTAREA'||tg==='INPUT')return true;var cn=p.className;if(cn&&String(cn).indexOf('messageInput')!==-1)return true}}return false}
+  // Only touch real message bubbles — NOT the "/" menu / model picker / usage popup or other chrome
+  // that also lives inside chatContainer_. Identified by the per-message class names.
+  function inMessage(node){for(var p=node.parentNode;p;p=p.parentNode){if(p.nodeType===1&&p.className){var cn=' '+String(p.className)+' ';if(cn.indexOf(' message_')!==-1||cn.indexOf('userMessage_')!==-1||cn.indexOf('timelineMessage_')!==-1||cn.indexOf('metaMessage_')!==-1)return true}}return false}
   function scanNode(node){
     if(node.nodeType===3){
       var t=node.textContent;
-      if(inEditable(node))return;                    // leave the composer/input completely alone
+      if(inEditable(node)||!inMessage(node))return;  // only inside message bubbles; skip input/menus/chrome
       if(t.indexOf(FSI)!==-1)return;                 // already isolated (idempotent, no observer loop)
       if(inCode(node)){                              // code/pre: strip artifacts only, never isolate
         var c=t.replace(RE,'').replace(RE_HARAKAT,'');
