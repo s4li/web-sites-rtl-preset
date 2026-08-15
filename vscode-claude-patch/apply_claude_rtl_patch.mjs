@@ -134,8 +134,16 @@ ${JS_MARK}
   var RE = /[\\u258A\\u258C\\u2261\\u200B\\u200E\\u200F\\u202A-\\u202E\\u2060-\\u2064\\uFEFF]/g;
   // Arabic harakat (fatha/damma/kasra/tanwin/shadda/sukun) — never written in informal Persian.
   var RE_HARAKAT = /[\\u064B-\\u0652]/g;
-  // A "run" of Latin letters / digits (ASCII, Arabic-Indic, Persian) + inner . _ / : # - and spaces.
-  var RUN = /[#@]?[A-Za-z0-9\\u0660-\\u0669\\u06F0-\\u06F9](?:[A-Za-z0-9\\u0660-\\u0669\\u06F0-\\u06F9 ._/:#-]*[A-Za-z0-9\\u0660-\\u0669\\u06F0-\\u06F9])?/g;
+  // A "run" of Latin letters / digits (ASCII, Arabic-Indic, Persian) + inner separators and spaces.
+  // The separators MUST include the Arabic decimal/thousands marks (U+066B ٫ / U+066C ٬) and the
+  // ASCII comma, or a number like "۱۸۵٫۷۴" splits into two runs that then order right-to-left
+  // against each other and read as "۷۴٫۱۸۵".
+  var RUN = /[#@]?[A-Za-z0-9\\u0660-\\u0669\\u06F0-\\u06F9](?:[A-Za-z0-9\\u0660-\\u0669\\u06F0-\\u06F9 ._/:#,\\u066B\\u066C-]*[A-Za-z0-9\\u0660-\\u0669\\u06F0-\\u06F9])?/g;
+  // Isolate ONLY runs containing a Latin letter. A pure number needs no isolation — the Unicode
+  // Bidi Algorithm already renders digits left-to-right inside RTL text and folds separators into
+  // the number (rule W4). Isolating one turns it into a neutral object that reorders against its
+  // neighbours, which is exactly how decimals got reversed. No /g flag: .test() stays stateless.
+  var HAS_LATIN = /[A-Za-z]/;
   var FSI='\\u2068', PDI='\\u2069';
   function inCode(node){for(var p=node.parentNode;p;p=p.parentNode){if(p.nodeType===1){var tg=p.tagName;if(tg==='CODE'||tg==='PRE')return true}}return false}
   // NEVER touch the input box / any editable: chatContainer_ includes the composer, and inserting
@@ -153,7 +161,7 @@ ${JS_MARK}
         var c=t.replace(RE,'').replace(RE_HARAKAT,'');
         if(c!==t){node.textContent=c}return;
       }
-      var clean=t.replace(RE,'').replace(RE_HARAKAT,'').replace(RUN,function(m){return FSI+m+PDI});
+      var clean=t.replace(RE,'').replace(RE_HARAKAT,'').replace(RUN,function(m){return HAS_LATIN.test(m)?FSI+m+PDI:m});
       if(clean!==t){node.textContent=clean}
     }else{
       for(var i=0;i<node.childNodes.length;i++)scanNode(node.childNodes[i]);
