@@ -182,9 +182,19 @@ ${JS_MARK}
   var obs=new MutationObserver(schedule);
   function start(){try{obs.observe(document.body,{childList:true,subtree:true,characterData:true})}catch(e){}cleanAllMessages()}
   if(document.body){start()}else{document.addEventListener('DOMContentLoaded',start)}
-  // Keep the clipboard clean: strip inserted isolates + artifacts when copying from a message.
-  function inMsg(n){for(var p=n;p;p=p.parentNode){if(p.nodeType===1&&p.className){var cn=String(p.className);if(cn.indexOf('messagesContainer_')!==-1||cn.indexOf('chatContainer_')!==-1)return true}}return false}
-  function onCopy(e){try{var s=window.getSelection();if(!s||s.isCollapsed||!inMsg(s.anchorNode))return;var txt=s.toString().replace(/[\\u2068\\u2069]/g,'').replace(RE,'').replace(RE_HARAKAT,'');(e.clipboardData||window.clipboardData).setData('text/plain',txt);e.preventDefault()}catch(err){}}
+  // Keep the clipboard clean. The isolates below are ones WE inserted, so they never belong in a
+  // copy no matter where the selection began. Anchoring this to the message container was wrong:
+  // a selection that STARTS in a tool-call block and runs into a message skipped the handler
+  // entirely and carried invisible FSI/PDI into the clipboard. Clean on content, not on position,
+  // and only override the clipboard when there is actually something to strip — otherwise let the
+  // native copy through so text/html and the rest survive.
+  function onCopy(e){try{
+    var s=window.getSelection();if(!s||s.isCollapsed)return;
+    var raw=s.toString();
+    var txt=raw.replace(/[\\u2068\\u2069]/g,'').replace(RE,'').replace(RE_HARAKAT,'');
+    if(txt===raw)return;
+    (e.clipboardData||window.clipboardData).setData('text/plain',txt);e.preventDefault()
+  }catch(err){}}
   document.addEventListener('copy',onCopy,true);
   document.addEventListener('cut',onCopy,true);
 })();
