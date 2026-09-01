@@ -218,10 +218,14 @@ const A_RE = () => /async requestToolPermission\(([^)]*)\)\{(?=if\(this\.channel
 const A_SUB = (_m, params) =>
   `async requestToolPermission(${params}){try{if(!globalThis._sndPerm||Date.now()-globalThis._sndPerm>5000){globalThis._sndPerm=Date.now();${permExec}}}catch(e){}`;
 
-// 3B — wrap the completion branch. \2 backreference pins the same target var on both sides.
-const B_RE = () => /else if\(([A-Za-z_$][\w$]*)\.request\.hasUnseenCompletion\)([A-Za-z_$][\w$]*)="claude-logo-done\.svg";else \2="claude-logo\.svg"/g;
-const B_SUB = (_m, condVar, tgtVar) =>
-  `else if(${condVar}.request.hasUnseenCompletion){${tgtVar}="claude-logo-done.svg";if(!globalThis._sndDone||Date.now()-globalThis._sndDone>5000){globalThis._sndDone=Date.now();try{${doneExec}}catch(e){}}}else ${tgtVar}="claude-logo.svg"`;
+// 3B — wrap the completion branch. Anchor ONLY on the two icon assignments, never on the
+// condition: 2.1.257 stopped testing `x.request.hasUnseenCompletion` inline and now precomputes
+// it into a local, so a condition-based pattern matched nothing. The `\1` backreference pins the
+// same target variable on both sides, and the replacement opens a block right after the existing
+// `if (...)`, so this fits the old and the new shape alike.
+const B_RE = () => /([A-Za-z_$][\w$]*)="claude-logo-done\.svg";else \1="claude-logo\.svg"/g;
+const B_SUB = (_m, tgtVar) =>
+  `{${tgtVar}="claude-logo-done.svg";if(!globalThis._sndDone||Date.now()-globalThis._sndDone>5000){globalThis._sndDone=Date.now();try{${doneExec}}catch(e){}}}else ${tgtVar}="claude-logo.svg"`;
 
 const countMatches = (src, re) => (src.match(re) || []).length;
 
