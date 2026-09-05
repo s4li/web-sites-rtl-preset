@@ -218,16 +218,28 @@ const A_RE = () => /async requestToolPermission\(([^)]*)\)\{(?=if\(this\.channel
 const A_SUB = (_m, params) =>
   `async requestToolPermission(${params}){try{if(!globalThis._sndPerm||Date.now()-globalThis._sndPerm>5000){globalThis._sndPerm=Date.now();${permExec}}}catch(e){}`;
 
-// 3B — wrap the completion branch. Anchor ONLY on the two icon assignments, never on the
-// condition: 2.1.257 stopped testing `x.request.hasUnseenCompletion` inline and now precomputes
-// it into a local, so a condition-based pattern matched nothing. The `\1` backreference pins the
-// same target variable on both sides, and the replacement opens a block right after the existing
-// `if (...)`, so this fits the old and the new shape alike.
-const B_RE = () => /([A-Za-z_$][\w$]*)="claude-logo-done\.svg";else \1="claude-logo\.svg"/g;
-const B_SUB = (_m, tgtVar) =>
-  `{${tgtVar}="claude-logo-done.svg";if(!globalThis._sndDone||Date.now()-globalThis._sndDone>5000){globalThis._sndDone=Date.now();try{${doneExec}}catch(e){}}}else ${tgtVar}="claude-logo.svg"`;
+// 3B — fire the completion sound. This spot gets restructured often, so instead of one pattern
+// we keep a list of known shapes, newest first, and use whichever matches exactly once:
+//   2.1.261+  a helper returns the icon STATE name ("pending"/"done"/"plain") and the caller looks
+//             the filename up in a map, so there is no assignment to hook — wrap the "done" return.
+//   <=2.1.257 the branch assigned the filename directly.
+// Anything that matches neither aborts before a byte is written.
+const DONE_SOUND = `if(!globalThis._sndDone||Date.now()-globalThis._sndDone>5000){globalThis._sndDone=Date.now();try{${doneExec}}catch(e){}}`;
+const B_SHAPES = [
+  {
+    what: 'icon-state helper returning "done"',
+    re: () => /return"done";return"plain"\}/g,
+    sub: () => `return((function(){${DONE_SOUND}})(),"done");return"plain"}`,
+  },
+  {
+    what: 'direct claude-logo-done.svg assignment',
+    re: () => /([A-Za-z_$][\w$]*)="claude-logo-done\.svg";else \1="claude-logo\.svg"/g,
+    sub: (_m, v) => `{${v}="claude-logo-done.svg";${DONE_SOUND}}else ${v}="claude-logo.svg"`,
+  },
+];
 
 const countMatches = (src, re) => (src.match(re) || []).length;
+let bShape = null;   // the 3B shape chosen in pre-flight, reused when the patch is applied
 
 /* ----------------------------------------------------------------- main */
 const verName = findLatest();
@@ -261,9 +273,10 @@ if (!cssDone) {
 }
 if (!extDone) {
   const aN = countMatches(extSrc, A_RE());
-  const bN = countMatches(extSrc, B_RE());
+  bShape = B_SHAPES.find((sh) => countMatches(extSrc, sh.re()) === 1) || null;
   if (aN !== 1) die(`extension.js 3A (requestToolPermission) matched ${aN}× (expected 1) — code shape changed.`);
-  if (bN !== 1) die(`extension.js 3B (hasUnseenCompletion) matched ${bN}× (expected 1) — code shape changed.`);
+  if (!bShape) die('extension.js 3B: no known completion-icon shape matched exactly once — the code\n'
+    + '  was restructured again. Shapes tried:\n   - ' + B_SHAPES.map((sh) => sh.what).join('\n   - '));
 }
 
 // Backups (only if not already present)
@@ -307,7 +320,7 @@ if (!jsDone) {
 
 // PATCH 3
 if (!extDone) {
-  const out = extSrc.replace(A_RE(), A_SUB).replace(B_RE(), B_SUB);
+  const out = extSrc.replace(A_RE(), A_SUB).replace(bShape.re(), bShape.sub);
   if (!out.includes('_sndPerm') || !out.includes('_sndDone')) die('PATCH 3 substitution produced no sound hooks — aborting.');
   // validate before writing
   // eslint-disable-next-line no-new-func
