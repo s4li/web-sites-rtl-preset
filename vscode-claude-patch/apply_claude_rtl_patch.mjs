@@ -134,6 +134,12 @@ ${JS_MARK}
   var RE = /[\\u258A\\u258C\\u2261\\u200B\\u200E\\u200F\\u202A-\\u202E\\u2060-\\u2064\\uFEFF]/g;
   // Arabic harakat (fatha/damma/kasra/tanwin/shadda/sukun) — never written in informal Persian.
   var RE_HARAKAT = /[\\u064B-\\u0652]/g;
+  // Directional marks written out as literal TEXT — e.g. the six characters "\\u200E" in prose.
+  // The model sometimes tries to pin a sign with an LRM but emits the escape instead of the
+  // character, and it then renders as visible junk («۳۳٬۳۹۰٬۰۰۰u200E\\»). Covers LRM/RLM/ALM,
+  // the embeddings/overrides and the isolates, any case, with one or more backslashes. Prose
+  // only: inside code the text may be meant literally (e.g. when discussing this very patch).
+  var RE_LIT = /\\\\+u(?:200[EeFf]|061[Cc]|202[A-Ea-e]|206[6-9])/g;
   // A "run" of Latin letters / digits (ASCII, Arabic-Indic, Persian) + inner separators and spaces.
   // The separators MUST include the Arabic decimal/thousands marks (U+066B ٫ / U+066C ٬) and the
   // ASCII comma, or a number like "۱۸۵٫۷۴" splits into two runs that then order right-to-left
@@ -167,7 +173,7 @@ ${JS_MARK}
         var c=t.replace(RE,'').replace(RE_HARAKAT,'');
         if(c!==t){node.textContent=c}return;
       }
-      var clean=t.replace(RE,'').replace(RE_HARAKAT,'').replace(RUN,function(m){return (HAS_LATIN.test(m)||SIGNED.test(m))?FSI+m+PDI:m});
+      var clean=t.replace(RE,'').replace(RE_LIT,'').replace(RE_HARAKAT,'').replace(RUN,function(m){return (HAS_LATIN.test(m)||SIGNED.test(m))?FSI+m+PDI:m});
       if(clean!==t){node.textContent=clean}
     }else{
       for(var i=0;i<node.childNodes.length;i++)scanNode(node.childNodes[i]);
@@ -310,6 +316,11 @@ if (!jsDone) {
   if (t('می' + zwnj + 'رود') !== 'می' + zwnj + 'رود')
     die('cleanup regex would strip ZWNJ (نیم‌فاصله) — refusing.');
   if (t('lock≡ش') !== 'lockش') die('cleanup regex does not strip U+2261 — check.');
+  const litM = mod.match(/var RE_LIT = (\/.*?\/g);/);
+  if (!litM) die('literal-escape stripper (RE_LIT) missing from index.js.');
+  const RE_LIT = eval(litM[1]);
+  if ('ریال \\u200E−۲۳۳'.replace(RE_LIT, '') !== 'ریال −۲۳۳') die('RE_LIT does not strip a literal \\u200E.');
+  if ('keep \\n and \\u0041'.replace(RE_LIT, '') !== 'keep \\n and \\u0041') die('RE_LIT strips unrelated escapes.');
   const iso = 'a' + String.fromCharCode(0x2068) + 'b' + String.fromCharCode(0x2069) + 'c';
   if (t(iso) !== iso) die('cleanup regex strips FSI/PDI — per-run isolation would be erased.');
   if (!mod.includes('u2068') || !mod.includes('RUN ='))
