@@ -1,5 +1,28 @@
 # Codex VS Code RTL Patch Notes
 
+> ## ⚡ اول این را بخوان — راه فعلی: اسکریپت
+>
+> ```bash
+> node apply_codex_rtl_patch.mjs
+> ```
+>
+> اسکریپت خودش آخرین `openai.chatgpt-*` را پیدا می‌کند، entry JS را از `webview/index.html` می‌خواند،
+> stylesheetِ لودشده‌ای که کلاس پیام را دارد انتخاب می‌کند، قبل از نوشتن چک می‌کند selectorها هنوز وجود دارند،
+> از هر فایل یک‌بار `<file>.bak-rtl` می‌گیرد، و بعد از نوشتن syntax را verify می‌کند. تکرارِ اجرا بی‌خطر است.
+>
+> 🔴 **از نسخه‌ی `26.908` به بعد بخش‌هایی از راهنمای پایین منسوخ است:**
+>
+> | پایین نوشته شده | واقعیت از 26.908 |
+> |---|---|
+> | `app-main-*.css` | دیگر وجود ندارد؛ CSS در `app-initial-*.css` است که مستقیم از `index.html` لینک می‌شود |
+> | `[class*="_markdownContent_"]` | `[class*="_MarkdownRoot_"]` |
+> | `[class*="_codeBlock_"]` | `[class*="_CodeBlock_"]` |
+> | `.ProseMirror[data-virtualkeyboard="true"]` | attribute حذف شده؛ فقط `.ProseMirror` |
+>
+> اسکریپت هر دو نامِ قدیم و جدید را پوشش می‌دهد. اگر روزی اسکریپت با پیامِ «not found in this build» متوقف شد،
+> یعنی OpenAI دوباره اسم کلاس را عوض کرده: با `grep -ohE '\.[A-Za-z_-]*[Mm]arkdown[A-Za-z0-9_-]*' webview/assets/*.css`
+> اسم جدید را پیدا کن و به `MD_STEMS` / `CB_STEMS` در اسکریپت اضافه کن.
+
 این فایل برای پچ کردن اکستنشن VS Code مربوط به Codex/OpenAI نگه داشته شده است.
 بعد از آپدیت اکستنشن، معمولاً فقط نام فولدر نسخه و hash فایل‌های asset عوض می‌شود؛ من باید از روی این راهنما فایل‌های جدید را پیدا کنم، backup بگیرم و همین پچ را دوباره اعمال کنم.
 
